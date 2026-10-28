@@ -1,0 +1,13 @@
+{
+  "name": "pipelinesketch",
+  "version": "1.0.0",
+  "description": "Sketch data pipelines on a canvas and export Airflow, dbt, Dagster, Prefect and Mermaid. Runs fully in the browser.",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "export": "node scripts/export-all.js out",
+    "serve": "python3 -m http.server 8000"
+  },
+  "engines": { "node": ">=18" }
+}

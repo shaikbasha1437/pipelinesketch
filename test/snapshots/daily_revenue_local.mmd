@@ -1,0 +1,36 @@
+flowchart LR
+    %% PipelineSketch export: the ps: comments let PipelineSketch re-import this diagram losslessly.
+    %% ps:settings {"name":"daily_revenue_local","description":"Daily revenue rollup in DuckDB","owner":"analytics","schedule":"@daily","timezone":"UTC","retries":2,"retryDelayMin":5,"startDate":"2026-01-01","catchup":false,"tags":["duckdb","iceberg"],"warehouse":"duckdb","rawSchema":"raw","stagingSchema":"staging","dbtProjectDir":"/opt/airflow/dbt","failureEmail":"","conns":{"warehouse":"","postgres":"postgres_default","mysql":"mysql_default","aws":"aws_default","gcp":"google_cloud_default","kafka":"kafka_default","slack":"slack_default"}}
+    %% ps:node wait_for_export sensor {"name":"wait_for_export","config":{"storage":"local","poke_minutes":2,"timeout_hours":3,"path":"/data/exports/{ds}/orders.done"},"columns":[],"notes":"","x":80,"y":130}
+    wait_for_export(["<b>wait_for_export</b><br/>Wait for file<br/><small>local: /data/exports/{ds}/orders.done</small>"])
+    %% ps:node orders pg_table {"name":"orders","config":{"schema":"shop","table":"orders"},"columns":["order_id","customer_id","amount","status","created_at"],"notes":"","x":370,"y":130}
+    orders[("<b>orders</b><br/>Postgres table<br/><small>shop.orders</small>")]
+    %% ps:node paid_orders filter {"name":"paid_orders","config":{"condition":"status = 'paid'"},"columns":[],"notes":"","x":660,"y":130}
+    paid_orders["<b>paid_orders</b><br/>Filter<br/><small>where status = 'paid'</small>"]
+    %% ps:node orders_by_day select {"name":"orders_by_day","config":{"columns":"order_id\namount\ncast(created_at as date) as order_date"},"columns":[],"notes":"","x":950,"y":130}
+    orders_by_day["<b>orders_by_day</b><br/>Select / rename<br/><small>3 columns</small>"]
+    %% ps:node daily_revenue aggregate {"name":"daily_revenue","config":{"group_by":["order_date"],"aggregations":"count(*) as orders\nsum(amount) as revenue"},"columns":[],"notes":"","x":1240,"y":130}
+    daily_revenue["<b>daily_revenue</b><br/>Aggregate<br/><small>group by order_date</small>"]
+    %% ps:node revenue_has_rows row_count {"name":"revenue_has_rows","config":{"min":1},"columns":[],"notes":"","x":1530,"y":130}
+    revenue_has_rows{{"<b>revenue_has_rows</b><br/>Row count range<br/><small>1 – ∞ rows</small>"}}
+    %% ps:node revenue_table warehouse_table {"name":"revenue_table","config":{"mode":"append","table":"analytics.daily_revenue"},"columns":[],"notes":"","x":1820,"y":80}
+    revenue_table[/"<b>revenue_table</b><br/>Warehouse table<br/><small>analytics.daily_revenue · append</small>"/]
+    %% ps:node revenue_iceberg lake_table {"name":"revenue_iceberg","config":{"format":"iceberg","mode":"append","location":"analytics.daily_revenue","catalog":"default"},"columns":[],"notes":"","x":1820,"y":180}
+    revenue_iceberg[/"<b>revenue_iceberg</b><br/>Delta / Iceberg table<br/><small>iceberg · analytics.daily_revenue · append</small>"/]
+    wait_for_export --> orders
+    orders --> paid_orders
+    paid_orders --> orders_by_day
+    orders_by_day --> daily_revenue
+    daily_revenue --> revenue_has_rows
+    revenue_has_rows --> revenue_table
+    revenue_has_rows --> revenue_iceberg
+    classDef source fill:#22c55e22,stroke:#22c55e,stroke-width:2px
+    classDef transform fill:#3b82f622,stroke:#3b82f6,stroke-width:2px
+    classDef quality fill:#eab30822,stroke:#eab308,stroke-width:2px
+    classDef sink fill:#a855f722,stroke:#a855f7,stroke-width:2px
+    classDef control fill:#94a3b822,stroke:#94a3b8,stroke-width:2px
+    class orders source
+    class paid_orders,orders_by_day,daily_revenue transform
+    class revenue_has_rows quality
+    class revenue_table,revenue_iceberg sink
+    class wait_for_export control

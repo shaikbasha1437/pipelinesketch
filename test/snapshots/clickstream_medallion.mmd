@@ -1,0 +1,50 @@
+flowchart LR
+    %% PipelineSketch export: the ps: comments let PipelineSketch re-import this diagram losslessly.
+    %% ps:settings {"name":"clickstream_medallion","description":"Micro-batch clickstream into a bronze/silver/gold Delta lake","owner":"platform","schedule":"*/15 * * * *","timezone":"UTC","retries":2,"retryDelayMin":5,"startDate":"2026-01-01","catchup":false,"tags":["streaming","delta","medallion"],"warehouse":"duckdb","rawSchema":"raw","stagingSchema":"staging","dbtProjectDir":"/opt/airflow/dbt","failureEmail":"","conns":{"warehouse":"","postgres":"postgres_default","mysql":"mysql_default","aws":"aws_default","gcp":"google_cloud_default","kafka":"kafka_default","slack":"slack_default"}}
+    %% ps:group {"title":"Bronze","text":"","x":350,"y":36,"w":260,"h":128,"color":"#b45309"}
+    %% ps:group {"title":"Silver","text":"","x":350,"y":36,"w":1130,"h":228,"color":"#94a3b8"}
+    %% ps:group {"title":"Gold","text":"","x":1220,"y":36,"w":840,"h":228,"color":"#ca8a04"}
+    %% ps:node clickstream kafka_topic {"name":"clickstream","config":{"max_messages":50000,"topic":"web.clickstream"},"columns":["event_id","user_id","event_type","page","event_ts"],"notes":"","x":80,"y":130}
+    clickstream[("<b>clickstream</b><br/>Kafka topic<br/><small>topic web.clickstream</small>")]
+    subgraph grp_bronze_1["Bronze"]
+        %% ps:node bronze_events lake_table {"name":"bronze_events","config":{"format":"delta","mode":"append","location":"s3://acme-lake/bronze/clickstream"},"columns":[],"notes":"","x":370,"y":80}
+        bronze_events[/"<b>bronze_events</b><br/>Delta / Iceberg table<br/><small>delta · s3://acme-lake/bronze/clickstream · append</small>"/]
+    end
+    subgraph grp_silver_2["Silver"]
+        %% ps:node silver_valid filter {"name":"silver_valid","config":{"condition":"user_id is not null and event_type is not null"},"columns":[],"notes":"","x":370,"y":180}
+        silver_valid["<b>silver_valid</b><br/>Filter<br/><small>where user_id is not null and event_type is not null</small>"]
+        %% ps:node silver_events dedupe {"name":"silver_events","config":{"keys":["event_id"],"order_by":"event_ts desc"},"columns":[],"notes":"","x":660,"y":130}
+        silver_events["<b>silver_events</b><br/>Dedupe<br/><small>unique event_id by event_ts desc</small>"]
+        %% ps:node silver_checks not_null {"name":"silver_checks","config":{"columns":["event_id","user_id"]},"columns":[],"notes":"","x":950,"y":130}
+        silver_checks{{"<b>silver_checks</b><br/>Not null<br/><small>event_id, user_id</small>"}}
+        %% ps:node silver_delta lake_table {"name":"silver_delta","config":{"format":"delta","mode":"merge","location":"s3://acme-lake/silver/clickstream","keys":["event_id"]},"columns":[],"notes":"","x":1240,"y":80}
+        silver_delta[/"<b>silver_delta</b><br/>Delta / Iceberg table<br/><small>delta · s3://acme-lake/silver/clickstream · merge</small>"/]
+        %% ps:node gold_activity sql {"name":"gold_activity","config":{"sql":"select\n    cast(event_ts as date) as event_date,\n    event_type,\n    count(*) as events,\n    count(distinct user_id) as users\nfrom {{ input }}\ngroup by 1, 2"},"columns":["event_date","event_type","events","users"],"notes":"","x":1240,"y":180}
+        gold_activity["<b>gold_activity</b><br/>SQL<br/><small>select cast(event_ts as date) as event_date, event_type, cou</small>"]
+    end
+    subgraph grp_gold_3["Gold"]
+        %% ps:node gold_not_empty row_count {"name":"gold_not_empty","config":{"min":1},"columns":[],"notes":"","x":1530,"y":130}
+        gold_not_empty{{"<b>gold_not_empty</b><br/>Row count range<br/><small>1 – ∞ rows</small>"}}
+        %% ps:node gold_delta lake_table {"name":"gold_delta","config":{"format":"delta","mode":"overwrite","location":"s3://acme-lake/gold/daily_activity","partition_by":["event_date"]},"columns":[],"notes":"","x":1820,"y":80}
+        gold_delta[/"<b>gold_delta</b><br/>Delta / Iceberg table<br/><small>delta · s3://acme-lake/gold/daily_activity · overwrite</small>"/]
+        %% ps:node publish_activity kafka_sink {"name":"publish_activity","config":{"topic":"analytics.daily_activity","key_column":"event_type"},"columns":[],"notes":"","x":1820,"y":180}
+        publish_activity[/"<b>publish_activity</b><br/>Kafka topic<br/><small>topic analytics.daily_activity</small>"/]
+    end
+    clickstream --> bronze_events
+    clickstream --> silver_valid
+    silver_valid --> silver_events
+    silver_events --> silver_checks
+    silver_checks --> silver_delta
+    silver_checks --> gold_activity
+    gold_activity --> gold_not_empty
+    gold_not_empty --> gold_delta
+    gold_not_empty --> publish_activity
+    classDef source fill:#22c55e22,stroke:#22c55e,stroke-width:2px
+    classDef transform fill:#3b82f622,stroke:#3b82f6,stroke-width:2px
+    classDef quality fill:#eab30822,stroke:#eab308,stroke-width:2px
+    classDef sink fill:#a855f722,stroke:#a855f7,stroke-width:2px
+    classDef control fill:#94a3b822,stroke:#94a3b8,stroke-width:2px
+    class clickstream source
+    class silver_valid,silver_events,gold_activity transform
+    class silver_checks,gold_not_empty quality
+    class bronze_events,silver_delta,gold_delta,publish_activity sink

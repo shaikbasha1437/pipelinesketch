@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>PipelineSketch: design data pipelines, export Airflow, dbt, Dagster and Prefect</title>
+<meta name="description" content="A visual data pipeline designer that runs in your browser. Drag sources, transforms, checks and sinks onto a canvas, then export a runnable Airflow DAG, dbt project, Dagster or Prefect code, Mermaid and docs.">
+<meta name="theme-color" content="#0f1117">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+<script>try{var t=localStorage.getItem('pipelinesketch:theme');if(t)document.documentElement.setAttribute('data-theme',t);}catch(e){}</script>
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <button class="icon-btn only-mobile" id="btn-palette" title="Node library" aria-label="Open node library">☰</button>
+    <div class="brand"><img src="icons/icon.svg" alt="" width="22" height="22"><span>PipelineSketch</span></div>
+    <button class="pipe-name" id="btn-settings" title="Pipeline settings (schedule, warehouse, connections)"><span id="pipe-name">my_pipeline</span><span class="sched" id="pipe-sched"></span></button>
+    <div class="tb-group">
+      <button class="tb" id="btn-undo" title="Undo (Ctrl+Z)" aria-label="Undo">↶</button>
+      <button class="tb" id="btn-redo" title="Redo (Ctrl+Shift+Z)" aria-label="Redo">↷</button>
+      <button class="tb hide-sm" id="btn-layout" title="Auto-layout (Shift+L)">⇶ <span class="lbl">Layout</span></button>
+    </div>
+    <div class="spacer"></div>
+    <div class="tb-group hide-sm">
+      <button class="tb" id="btn-pipelines" title="Your saved pipelines">🗂 <span class="lbl">Pipelines</span></button>
+      <button class="tb" id="btn-templates" title="Start from a template">✨ <span class="lbl">Templates</span></button>
+      <button class="tb" id="btn-import" title="Import JSON, Mermaid or an Airflow DAG">⬆ <span class="lbl">Import</span></button>
+      <button class="tb" id="btn-share" title="Share link and backup">🔗 <span class="lbl">Share</span></button>
+    </div>
+    <button class="tb primary" id="btn-export" title="Export code (Ctrl+E)">⬇ <span class="lbl">Export</span></button>
+    <button class="icon-btn hide-sm" id="btn-theme" title="Toggle light/dark theme" aria-label="Toggle theme">◐</button>
+    <button class="icon-btn hide-sm" id="btn-help" title="Keyboard shortcuts (?)" aria-label="Help">?</button>
+    <button class="icon-btn only-sm" id="btn-more" title="More" aria-label="More actions">⋯</button>
+  </header>
+  <main class="workspace">
+    <aside class="palette" id="palette" aria-label="Node library">
+      <div class="panel-head"><input type="search" id="palette-search" placeholder="Search nodes…" aria-label="Search nodes"><button class="x only-mobile" data-close="palette" aria-label="Close">✕</button></div>
+      <div class="palette-list" id="palette-list"></div>
+      <div class="palette-foot">Drag a node onto the canvas, or tap to add it.</div>
+    </aside>
+    <section class="canvas-wrap" id="canvas-wrap">
+      <svg id="canvas" tabindex="0" aria-label="Pipeline canvas" role="application">
+        <g id="defs-holder"></g>
+        <g id="viewport"><g id="scene"></g><path id="ghost-edge" d="" fill="none" stroke-dasharray="6 4"/><rect id="marquee" x="0" y="0" width="0" height="0"/></g>
+      </svg>
+      <div class="empty-hint" id="empty-hint" hidden>
+        <h2>Empty pipeline</h2>
+        <p>Drag nodes in from the library, or start from a template.</p>
+        <button class="btn primary" data-action="templates">Browse templates</button>
+      </div>
+      <div class="canvas-tools">
+        <button class="tool" id="tool-select" title="Box select (hold Shift and drag)" aria-pressed="false">⬚</button>
+        <button class="tool" id="tool-snap" title="Snap to grid" aria-pressed="true">#</button>
+        <button class="tool" id="tool-group" title="Group selection (Ctrl+G)">▣</button>
+        <span class="sep"></span>
+        <button class="tool" id="zoom-out" title="Zoom out (-)">−</button>
+        <button class="tool zoom-val" id="zoom-val" title="Reset zoom to 100%">100%</button>
+        <button class="tool" id="zoom-in" title="Zoom in (+)">+</button>
+        <button class="tool" id="zoom-fit" title="Fit to screen (F)">⤢</button>
+      </div>
+      <div class="minimap" id="minimap" title="Minimap: click or drag to move"><svg id="minimap-svg"></svg></div>
+      <button class="fab only-mobile" id="fab-add" aria-label="Add node">＋</button>
+    </section>
+    <aside class="inspector" id="inspector" hidden aria-label="Inspector">
+      <div class="panel-head"><h3 id="insp-title">Node</h3><button class="x" data-close="inspector" aria-label="Close inspector">✕</button></div>
+      <div class="insp-body" id="insp-body"></div>
+      <div class="panel-foot" id="insp-foot"><button class="btn" data-cancel="inspector">Cancel</button><button class="btn primary" data-close="inspector">Done</button></div>
+    </aside>
+  </main>
+  <section class="issues" id="issues" hidden aria-label="Validation">
+    <div class="panel-head"><h3>Validation</h3><span class="muted" id="issues-sum"></span><span class="spacer"></span><button class="x" data-close="issues" aria-label="Close validation">✕</button></div>
+    <ul class="issue-list" id="issue-list"></ul>
+  </section>
+  <footer class="statusbar">
+    <button class="status-issues" id="btn-issues" title="Show validation issues"><span id="status-issues">✓ No issues</span></button>
+    <span class="muted" id="status-count"></span>
+    <span class="spacer"></span>
+    <span class="muted" id="status-save">Saved locally</span>
+  </footer>
+</div>
+
+<div class="backdrop" id="panel-backdrop" hidden></div>
+<div id="modal-root"></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script src="js/cron.js"></script>
+<script src="js/nodes.js"></script>
+<script src="js/core.js"></script>
+<script src="js/gen-common.js"></script>
+<script src="js/gen-py.js"></script>
+<script src="js/gen-airflow.js"></script>
+<script src="js/gen-dagster.js"></script>
+<script src="js/gen-prefect.js"></script>
+<script src="js/gen-dbt.js"></script>
+<script src="js/gen-docs.js"></script>
+<script src="js/import.js"></script>
+<script src="js/templates.js"></script>
+<script src="js/zip.js"></script>
+<script src="js/highlight.js"></script>
+<script src="js/modal.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

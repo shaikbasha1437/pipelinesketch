@@ -1,0 +1,38 @@
+flowchart LR
+    %% PipelineSketch export: the ps: comments let PipelineSketch re-import this diagram losslessly.
+    %% ps:settings {"name":"customers_cdc_to_bigquery","description":"Incremental customer changes from Postgres into a BigQuery dimension","owner":"data-eng","schedule":"@hourly","timezone":"UTC","retries":2,"retryDelayMin":5,"startDate":"2026-01-01","catchup":false,"tags":["cdc","bigquery"],"warehouse":"bigquery","rawSchema":"raw","stagingSchema":"staging","dbtProjectDir":"/opt/airflow/dbt","failureEmail":"","conns":{"warehouse":"","postgres":"postgres_default","mysql":"mysql_default","aws":"aws_default","gcp":"google_cloud_default","kafka":"kafka_default","slack":"slack_default"}}
+    %% ps:node customers_cdc pg_table {"name":"customers_cdc","config":{"schema":"public","table":"customers","incremental_column":"updated_at"},"columns":["customer_id","email","full_name","country_code","updated_at"],"notes":"","x":80,"y":130}
+    customers_cdc[("<b>customers_cdc</b><br/>Postgres table<br/><small>public.customers Δ updated_at</small>")]
+    %% ps:node customers_latest dedupe {"name":"customers_latest","config":{"keys":["customer_id"],"order_by":"updated_at desc"},"columns":[],"notes":"","x":370,"y":80}
+    customers_latest["<b>customers_latest</b><br/>Dedupe<br/><small>unique customer_id by updated_at desc</small>"]
+    %% ps:node countries bigquery_table {"name":"countries","config":{"project":"acme-analytics","dataset":"reference","table":"countries"},"columns":["country_code","country_name","region"],"notes":"","x":370,"y":180}
+    countries[("<b>countries</b><br/>BigQuery table<br/><small>acme-analytics.reference.countries</small>")]
+    %% ps:node customers_enriched join {"name":"customers_enriched","config":{"how":"left","select":"*","on":"country_code"},"columns":[],"notes":"","x":660,"y":130}
+    customers_enriched["<b>customers_enriched</b><br/>Join<br/><small>left join on country_code</small>"]
+    %% ps:node customer_id_not_null not_null {"name":"customer_id_not_null","config":{"columns":["customer_id"]},"columns":[],"notes":"","x":950,"y":130}
+    customer_id_not_null{{"<b>customer_id_not_null</b><br/>Not null<br/><small>customer_id</small>"}}
+    %% ps:node customer_id_unique unique {"name":"customer_id_unique","config":{"columns":["customer_id"]},"columns":[],"notes":"","x":1240,"y":130}
+    customer_id_unique{{"<b>customer_id_unique</b><br/>Unique<br/><small>customer_id</small>"}}
+    %% ps:node customers_fresh freshness {"name":"customers_fresh","config":{"max_age_hours":3,"column":"updated_at"},"columns":[],"notes":"","x":1530,"y":130}
+    customers_fresh{{"<b>customers_fresh</b><br/>Freshness<br/><small>updated_at #lt; 3h old</small>"}}
+    %% ps:node dim_customers warehouse_table {"name":"dim_customers","config":{"mode":"merge","table":"analytics.dim_customers","keys":["customer_id"]},"columns":[],"notes":"","x":1820,"y":130}
+    dim_customers[/"<b>dim_customers</b><br/>Warehouse table<br/><small>analytics.dim_customers · merge on customer_id</small>"/]
+    %% ps:node page_on_failure alert {"name":"page_on_failure","config":{"channel":"email","when":"fails","message":"customers CDC failed for {{ ds }}","to":["data-oncall@example.com"]},"columns":[],"notes":"","x":2110,"y":130}
+    page_on_failure[/"<b>page_on_failure</b><br/>Slack / email alert<br/><small>email when fails</small>"/]
+    customers_cdc --> customers_latest
+    customers_latest -->|left| customers_enriched
+    countries -->|right| customers_enriched
+    customers_enriched --> customer_id_not_null
+    customer_id_not_null --> customer_id_unique
+    customer_id_unique --> customers_fresh
+    customers_fresh --> dim_customers
+    dim_customers --> page_on_failure
+    classDef source fill:#22c55e22,stroke:#22c55e,stroke-width:2px
+    classDef transform fill:#3b82f622,stroke:#3b82f6,stroke-width:2px
+    classDef quality fill:#eab30822,stroke:#eab308,stroke-width:2px
+    classDef sink fill:#a855f722,stroke:#a855f7,stroke-width:2px
+    classDef control fill:#94a3b822,stroke:#94a3b8,stroke-width:2px
+    class customers_cdc,countries source
+    class customers_latest,customers_enriched transform
+    class customer_id_not_null,customer_id_unique,customers_fresh quality
+    class dim_customers,page_on_failure sink

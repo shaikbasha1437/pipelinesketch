@@ -1,0 +1,38 @@
+flowchart LR
+    %% PipelineSketch export: the ps: comments let PipelineSketch re-import this diagram losslessly.
+    %% ps:settings {"name":"shop_api_to_marts","description":"Orders from the shop API modelled with dbt","owner":"analytics-eng","schedule":"0 7 * * *","timezone":"UTC","retries":2,"retryDelayMin":5,"startDate":"2026-01-01","catchup":false,"tags":["api","dbt"],"warehouse":"snowflake","rawSchema":"raw","stagingSchema":"staging","dbtProjectDir":"/opt/airflow/dbt","failureEmail":"","conns":{"warehouse":"","postgres":"postgres_default","mysql":"mysql_default","aws":"aws_default","gcp":"google_cloud_default","kafka":"kafka_default","slack":"slack_default"}}
+    %% ps:group {"title":"dbt models","text":"","x":350,"y":36,"w":550,"h":228,"color":"#f97316"}
+    %% ps:node api_orders rest_api {"name":"api_orders","config":{"max_pages":100,"url":"https://api.example.com/v1/orders?updated_since={ds}","records_path":"data","next_field":"links.next","token_env":"SHOP_API_TOKEN"},"columns":["id","customer_id","total","currency","created_at"],"notes":"","x":80,"y":80}
+    api_orders[("<b>api_orders</b><br/>REST API<br/><small>api.example.com/v1/orders?updated_since={ds}</small>")]
+    %% ps:node crm_customers snowflake_table {"name":"crm_customers","config":{"database":"ANALYTICS","schema":"CRM","table":"CUSTOMERS"},"columns":["customer_id","name","segment"],"notes":"","x":80,"y":180}
+    crm_customers[("<b>crm_customers</b><br/>Snowflake table<br/><small>ANALYTICS.CRM.CUSTOMERS</small>")]
+    %% ps:node revenue_unique unique {"name":"revenue_unique","config":{"columns":["customer_id"]},"columns":[],"notes":"","x":950,"y":130}
+    revenue_unique{{"<b>revenue_unique</b><br/>Unique<br/><small>customer_id</small>"}}
+    %% ps:node no_negative_revenue custom_check {"name":"no_negative_revenue","config":{"sql":"select *\nfrom {{ input }}\nwhere revenue < 0"},"columns":[],"notes":"","x":1240,"y":130}
+    no_negative_revenue{{"<b>no_negative_revenue</b><br/>Custom SQL check<br/><small>select * from {{ input }} where revenue #lt; 0</small>"}}
+    %% ps:node notify_marts alert {"name":"notify_marts","config":{"channel":"slack","when":"finishes","message":"Customer revenue mart run finished for {{ ds }}"},"columns":[],"notes":"","x":1530,"y":130}
+    notify_marts[/"<b>notify_marts</b><br/>Slack / email alert<br/><small>slack when finishes</small>"/]
+    subgraph grp_dbt_models_1["dbt models"]
+        %% ps:node stg_api_orders dbt_model {"name":"stg_api_orders","config":{"sql":"select\n    id as order_id,\n    customer_id,\n    total as amount,\n    currency,\n    created_at\nfrom {{ input }}","materialized":"view"},"columns":["order_id","customer_id","amount","currency","created_at"],"notes":"","x":370,"y":80}
+        stg_api_orders["<b>stg_api_orders</b><br/>dbt model<br/><small>select id as order_id, customer_id, total as amount, currenc</small>"]
+        %% ps:node stg_customers dbt_model {"name":"stg_customers","config":{"sql":"select\n    customer_id,\n    name as customer_name,\n    segment\nfrom {{ input }}","materialized":"view"},"columns":["customer_id","customer_name","segment"],"notes":"","x":370,"y":180}
+        stg_customers["<b>stg_customers</b><br/>dbt model<br/><small>select customer_id, name as customer_name, segment from {{ i</small>"]
+        %% ps:node fct_customer_revenue dbt_model {"name":"fct_customer_revenue","config":{"sql":"select\n    c.customer_id,\n    c.segment,\n    count(o.order_id) as orders,\n    coalesce(sum(o.amount), 0) as revenue\nfrom {{ input }} as c\nleft join {{ input_2 }} as o\n    on o.customer_id = c.customer_id\ngroup by 1, 2","materialized":"table"},"columns":["customer_id","segment","orders","revenue"],"notes":"","x":660,"y":130}
+        fct_customer_revenue["<b>fct_customer_revenue</b><br/>dbt model<br/><small>select c.customer_id, c.segment, count(o.order_id) as orders</small>"]
+    end
+    crm_customers --> stg_customers
+    stg_customers --> fct_customer_revenue
+    api_orders --> stg_api_orders
+    stg_api_orders --> fct_customer_revenue
+    fct_customer_revenue --> revenue_unique
+    revenue_unique --> no_negative_revenue
+    no_negative_revenue --> notify_marts
+    classDef source fill:#22c55e22,stroke:#22c55e,stroke-width:2px
+    classDef transform fill:#3b82f622,stroke:#3b82f6,stroke-width:2px
+    classDef quality fill:#eab30822,stroke:#eab308,stroke-width:2px
+    classDef sink fill:#a855f722,stroke:#a855f7,stroke-width:2px
+    classDef control fill:#94a3b822,stroke:#94a3b8,stroke-width:2px
+    class api_orders,crm_customers source
+    class stg_api_orders,stg_customers,fct_customer_revenue transform
+    class revenue_unique,no_negative_revenue quality
+    class notify_marts sink

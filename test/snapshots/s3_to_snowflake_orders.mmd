@@ -1,0 +1,51 @@
+flowchart LR
+    %% PipelineSketch export: the ps: comments let PipelineSketch re-import this diagram losslessly.
+    %% ps:settings {"name":"s3_to_snowflake_orders","description":"Daily orders ELT from S3 into Snowflake","owner":"data-eng","schedule":"0 6 * * *","timezone":"UTC","retries":2,"retryDelayMin":5,"startDate":"2026-01-01","catchup":false,"tags":["orders","elt","snowflake"],"warehouse":"snowflake","rawSchema":"raw","stagingSchema":"staging","dbtProjectDir":"/opt/airflow/dbt","failureEmail":"data-oncall@example.com","conns":{"warehouse":"","postgres":"postgres_default","mysql":"mysql_default","aws":"aws_default","gcp":"google_cloud_default","kafka":"kafka_default","slack":"slack_default"}}
+    %% ps:group {"title":"Staging","text":"","x":640,"y":136,"w":550,"h":128,"color":"#3b82f6"}
+    %% ps:group {"title":"Data tests","text":"","x":1220,"y":136,"w":840,"h":128,"color":"#eab308"}
+    %% ps:node wait_for_orders sensor {"name":"wait_for_orders","config":{"storage":"s3","poke_minutes":5,"timeout_hours":6,"bucket":"acme-landing","path":"orders/{ds}/_SUCCESS"},"columns":[],"notes":"","x":80,"y":180}
+    wait_for_orders(["<b>wait_for_orders</b><br/>Wait for file<br/><small>s3: orders/{ds}/_SUCCESS</small>"])
+    %% ps:node orders_raw s3_files {"name":"orders_raw","config":{"format":"parquet","bucket":"acme-landing","prefix":"orders/{ds}/"},"columns":["order_id","customer_id","status","amount","updated_at"],"notes":"","x":370,"y":180}
+    orders_raw[("<b>orders_raw</b><br/>S3 files<br/><small>s3://acme-landing/orders/{ds}/ · parquet</small>")]
+    %% ps:node fct_orders warehouse_table {"name":"fct_orders","config":{"mode":"merge","table":"analytics.fct_orders","keys":["order_id"]},"columns":[],"notes":"","x":2110,"y":180}
+    fct_orders[/"<b>fct_orders</b><br/>Warehouse table<br/><small>analytics.fct_orders · merge on order_id</small>"/]
+    %% ps:node notify_success alert {"name":"notify_success","config":{"channel":"slack","when":"succeeds","message":":white_check_mark: fct_orders refreshed for {{ ds }}"},"columns":[],"notes":"","x":2400,"y":80}
+    notify_success[/"<b>notify_success</b><br/>Slack / email alert<br/><small>slack when succeeds</small>"/]
+    %% ps:node notify_failure alert {"name":"notify_failure","config":{"channel":"email","when":"fails","message":"Loading fct_orders failed for {{ ds }} (run {{ run_id }}).","to":["data-oncall@example.com"]},"columns":[],"notes":"","x":2400,"y":180}
+    notify_failure[/"<b>notify_failure</b><br/>Slack / email alert<br/><small>email when fails</small>"/]
+    %% ps:node sla_2h sla {"name":"sla_2h","config":{"minutes":120},"columns":[],"notes":"","x":2400,"y":290}
+    sla_2h(["<b>sla_2h</b><br/>SLA<br/><small>within 120 min</small>"])
+    subgraph grp_staging_1["Staging"]
+        %% ps:node stg_orders select {"name":"stg_orders","config":{"columns":"order_id\ncustomer_id\nlower(status) as status\ncast(amount as number(12, 2)) as amount\nupdated_at"},"columns":[],"notes":"","x":660,"y":180}
+        stg_orders["<b>stg_orders</b><br/>Select / rename<br/><small>5 columns</small>"]
+        %% ps:node orders_dedup dedupe {"name":"orders_dedup","config":{"keys":["order_id"],"order_by":"updated_at desc"},"columns":[],"notes":"","x":950,"y":180}
+        orders_dedup["<b>orders_dedup</b><br/>Dedupe<br/><small>unique order_id by updated_at desc</small>"]
+    end
+    subgraph grp_data_tests_2["Data tests"]
+        %% ps:node orders_not_null not_null {"name":"orders_not_null","config":{"columns":["order_id","customer_id"]},"columns":[],"notes":"","x":1240,"y":180}
+        orders_not_null{{"<b>orders_not_null</b><br/>Not null<br/><small>order_id, customer_id</small>"}}
+        %% ps:node orders_unique unique {"name":"orders_unique","config":{"columns":["order_id"]},"columns":[],"notes":"","x":1530,"y":180}
+        orders_unique{{"<b>orders_unique</b><br/>Unique<br/><small>order_id</small>"}}
+        %% ps:node status_values accepted_values {"name":"status_values","config":{"column":"status","values":["placed","shipped","delivered","returned"]},"columns":[],"notes":"","x":1820,"y":180}
+        status_values{{"<b>status_values</b><br/>Accepted values<br/><small>status in (placed, shipped, delivered, returned)</small>"}}
+    end
+    wait_for_orders --> orders_raw
+    orders_raw --> stg_orders
+    stg_orders --> orders_dedup
+    orders_dedup --> orders_not_null
+    orders_not_null --> orders_unique
+    orders_unique --> status_values
+    status_values --> fct_orders
+    fct_orders --> notify_success
+    fct_orders --> notify_failure
+    fct_orders --> sla_2h
+    classDef source fill:#22c55e22,stroke:#22c55e,stroke-width:2px
+    classDef transform fill:#3b82f622,stroke:#3b82f6,stroke-width:2px
+    classDef quality fill:#eab30822,stroke:#eab308,stroke-width:2px
+    classDef sink fill:#a855f722,stroke:#a855f7,stroke-width:2px
+    classDef control fill:#94a3b822,stroke:#94a3b8,stroke-width:2px
+    class orders_raw source
+    class stg_orders,orders_dedup transform
+    class orders_not_null,orders_unique,status_values quality
+    class fct_orders,notify_success,notify_failure sink
+    class wait_for_orders,sla_2h control

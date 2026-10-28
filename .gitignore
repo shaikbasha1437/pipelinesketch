@@ -1,0 +1,7 @@
+out/
+node_modules/
+*.duckdb
+logs/
+target/
+__pycache__/
+.DS_Store
